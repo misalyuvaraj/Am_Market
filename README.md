@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Am Market
 
 Live **NSE · BSE · Bitcoin** analysis terminal with a React desk, GenAI copilot, and Sensibull-style options tools.
@@ -39,3 +40,7 @@ Optional GenAI (free Groq key works): copy `.env.example` to `server/.env` or pr
 ## Stack
 
 React 18 + Vite front end, Node Express + WebSocket back end, Black-Scholes Greeks, RSI/MACD/Bollinger, PCR and max-pain engine.
+=======
+# Am_Market
+small  market  webside
+>>>>>>> deacde4f409c7960e073d16afb111d2472e2d606
