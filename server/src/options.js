@@ -1,4 +1,4 @@
-import { cached, num, round } from "./lib.js";
+import { cached, getJson, num, round } from "./lib.js";
 import { INDEX_MAP } from "./universe.js";
 import { nseGet, yahooQuote } from "./market.js";
 import { liveQuote } from "./snapshot.js";
@@ -190,6 +190,128 @@ function unwrapChain(raw) {
   return raw;
 }
 
+async function yahooOptionChain(key, expiry) {
+  const spec = INDEX_MAP[key] || {};
+  const yid = spec.yahoo || `${key}.NS`;
+  const data = await getJson(`https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(yid)}`);
+  const result = data?.optionChain?.result?.[0];
+  if (!result) throw new Error(`No live option chain for ${key}`);
+  const quote = result.quote || {};
+  const pack = result.options?.[0] || {};
+  const calls = pack.calls || [];
+  const puts = pack.puts || [];
+  const byStrike = new Map();
+  for (const c of calls) {
+    const strike = num(c.strike);
+    if (!strike) continue;
+    byStrike.set(strike, {
+      strikePrice: strike,
+      expiryDate: c.expiration ? new Date(c.expiration * 1000).toISOString().slice(0, 10) : expiry,
+      CE: {
+        strikePrice: strike,
+        lastPrice: num(c.lastPrice),
+        openInterest: num(c.openInterest),
+        changeinOpenInterest: 0,
+        impliedVolatility: num(c.impliedVolatility) * (num(c.impliedVolatility) <= 2 ? 100 : 1),
+        totalTradedVolume: num(c.volume),
+        bidPrice: num(c.bid),
+        askPrice: num(c.ask),
+        change: num(c.change)
+      }
+    });
+  }
+  for (const p of puts) {
+    const strike = num(p.strike);
+    if (!strike) continue;
+    const row = byStrike.get(strike) || { strikePrice: strike, expiryDate: expiry };
+    row.PE = {
+      strikePrice: strike,
+      lastPrice: num(p.lastPrice),
+      openInterest: num(p.openInterest),
+      changeinOpenInterest: 0,
+      impliedVolatility: num(p.impliedVolatility) * (num(p.impliedVolatility) <= 2 ? 100 : 1),
+      totalTradedVolume: num(p.volume),
+      bidPrice: num(p.bid),
+      askPrice: num(p.ask),
+      change: num(p.change)
+    };
+    byStrike.set(strike, row);
+  }
+  const expiries = (result.expirationDates || []).map((t) => new Date(t * 1000).toISOString().slice(0, 10));
+  const chosen = pack.expirationDate ? new Date(pack.expirationDate * 1000).toISOString().slice(0, 10) : expiries[0] || expiry;
+  const chain = normalizeChain(
+    {
+      records: {
+        expiryDates: expiries,
+        data: [...byStrike.values()],
+        underlyingValue: num(quote.regularMarketPrice)
+      }
+    },
+    key
+  );
+  if (!byStrike.size || !num(quote.regularMarketPrice)) throw new Error(`No live option chain for ${key}`);
+  return { ...chain, symbol: key, expiry: chosen, expiries, source: "yahoo" };
+}
+
+async function syntheticChain(key, expiry) {
+  const spec = INDEX_MAP[key] || { lot: 75, step: 50, name: key, yahoo: `${key}.NS` };
+  const quote = await yahooQuote(spec.yahoo || "^NSEI", "1d", "5m").catch(() => null);
+  const spot = num(quote?.price);
+  if (!spot) throw new Error(`No live chain for ${key}`);
+  const step = spec.step || 50;
+  const atm = Math.round(spot / step) * step;
+  const iv = 15;
+  const days = 7;
+  const expiryDate = expiry || new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+  const data = [];
+  for (let i = -8; i <= 8; i++) {
+    const strike = atm + i * step;
+    const ce = blackScholes({ spot, strike, days, iv: iv / 100, type: "CE" });
+    const pe = blackScholes({ spot, strike, days, iv: iv / 100, type: "PE" });
+    data.push({
+      strikePrice: strike,
+      expiryDate,
+      CE: {
+        strikePrice: strike,
+        lastPrice: ce.price,
+        openInterest: Math.max(800, 18000 - Math.abs(i) * 1400),
+        changeinOpenInterest: 0,
+        impliedVolatility: iv,
+        totalTradedVolume: 0,
+        bidPrice: ce.price,
+        askPrice: ce.price,
+        change: 0
+      },
+      PE: {
+        strikePrice: strike,
+        lastPrice: pe.price,
+        openInterest: Math.max(800, 18000 - Math.abs(i) * 1400),
+        changeinOpenInterest: 0,
+        impliedVolatility: iv,
+        totalTradedVolume: 0,
+        bidPrice: pe.price,
+        askPrice: pe.price,
+        change: 0
+      }
+    });
+  }
+  const pack = normalizeChain(
+    { records: { expiryDates: [expiryDate], data, underlyingValue: spot } },
+    key
+  );
+  return { ...pack, symbol: key, expiry: expiryDate, expiries: [expiryDate], source: "model" };
+}
+
+async function fallbackChain(key, expiry) {
+  try {
+    const yahoo = await yahooOptionChain(key, expiry);
+    if (yahoo?.rows?.length) return yahoo;
+  } catch {
+    /* use model chain from live spot */
+  }
+  return syntheticChain(key, expiry);
+}
+
 export async function getOptionChain(symbol = "NIFTY", expiry) {
   const key = String(symbol || "NIFTY").toUpperCase();
   const nseSym = INDEX_MAP[key]?.nse || key;
@@ -230,7 +352,8 @@ export async function getOptionChain(symbol = "NIFTY", expiry) {
           underlyingValue: raw.records?.underlyingValue || info?.underlyingValue
         };
       } catch (err) {
-        throw lastErr || err;
+        lastErr = lastErr || err;
+        return fallbackChain(key, expiry);
       }
     }
     const records = raw.records || {};
@@ -254,6 +377,7 @@ export async function getOptionChain(symbol = "NIFTY", expiry) {
       },
       key
     );
+    if (!chain.rows?.length) return fallbackChain(key, expiry);
     return { ...chain, symbol: key, expiry: chosen, expiries };
   }).then((chain) => {
     const q = liveQuote(key);

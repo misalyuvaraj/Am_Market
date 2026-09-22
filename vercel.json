@@ -1,6 +1,18 @@
 {
-  "installCommand": "npm install && npm install --prefix client",
+  "regions": ["bom1"],
+  "installCommand": "npm install && npm install --prefix client && npm install --prefix server",
   "buildCommand": "npm run build --prefix client",
   "outputDirectory": "client/dist",
-  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }]
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "server/src/**"
+    },
+    "api/[...path].js": {
+      "includeFiles": "server/src/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
 }

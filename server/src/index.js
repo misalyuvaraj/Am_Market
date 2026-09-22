@@ -36,7 +36,7 @@ import { marketSession } from "./lib.js";
 import { FNO_STOCKS, INDEX_MAP } from "./universe.js";
 import { freshTickers, liveAgeMs } from "./snapshot.js";
 
-const app = express();
+export const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
@@ -297,17 +297,23 @@ app.get("/api/ml", async (req, res) => {
   }
 });
 
-const server = http.createServer(app);
-attachLive(server);
+app.use("/api", (req, res) => {
+  res.status(404).json({ error: `No route ${req.method} ${req.path}` });
+});
 
-const port = Number(process.env.PORT || 8787);
-server.on("error", (err) => {
-  if (err.code === "EADDRINUSE") {
-    console.error(`Port ${port} is already in use. Stop the extra Am Market API and try again.`);
-    process.exit(0);
-  }
-  throw err;
-});
-server.listen(port, () => {
-  console.log(`Am Market API live on http://localhost:${port}`);
-});
+if (!process.env.VERCEL) {
+  const server = http.createServer(app);
+  attachLive(server);
+
+  const port = Number(process.env.PORT || 8787);
+  server.on("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`Port ${port} is already in use. Stop the extra Am Market API and try again.`);
+      process.exit(0);
+    }
+    throw err;
+  });
+  server.listen(port, () => {
+    console.log(`Am Market API live on http://localhost:${port}`);
+  });
+}

@@ -19,15 +19,43 @@ export function useLive() {
   useEffect(() => {
     let ws;
     let closed = false;
+    let wsFails = 0;
+    async function pull() {
+      try {
+        const d = await api("/api/tickers");
+        if (!closed) {
+          setTickers(d);
+          setTickAt(Date.now());
+          setConnected(true);
+        }
+      } catch {
+        if (!closed) setConnected(false);
+      }
+    }
     const connect = () => {
-      const proto = location.protocol === "https:" ? "wss" : "ws";
+      if (closed || wsFails >= 2) return;
       const baseUrl = import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
-      const wsUrl = baseUrl.replace(/^http/, 'ws');
-      ws = new WebSocket(`${wsUrl}/ws`);
-      ws.onopen = () => setConnected(true);
+      const wsUrl = String(baseUrl).replace(/^http/, "ws");
+      try {
+        ws = new WebSocket(`${wsUrl}/ws`);
+      } catch {
+        wsFails += 1;
+        return;
+      }
+      ws.onopen = () => {
+        wsFails = 0;
+        setConnected(true);
+      };
       ws.onclose = () => {
-        setConnected(false);
-        if (!closed) setTimeout(connect, 1500);
+        wsFails += 1;
+        if (!closed && wsFails < 2) setTimeout(connect, 2500);
+      };
+      ws.onerror = () => {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
       };
       ws.onmessage = (ev) => {
         try {
@@ -45,13 +73,12 @@ export function useLive() {
         }
       };
     };
-    api("/api/tickers").then((d) => {
-      setTickers(d);
-      setTickAt(Date.now());
-    }).catch(() => {});
+    pull();
+    const poll = setInterval(pull, 3000);
     connect();
     return () => {
       closed = true;
+      clearInterval(poll);
       ws?.close();
     };
   }, []);

@@ -10,6 +10,13 @@
     "start": "npm run start --prefix server",
     "build": "npm run build --prefix client"
   },
+  "type": "module",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ws": "^8.18.1"
+  },
   "devDependencies": {
     "concurrently": "^9.1.2"
   }
