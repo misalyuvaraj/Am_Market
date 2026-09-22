@@ -16,8 +16,11 @@
   --radius: 14px;
 }
 
-* { box-sizing: border-box; }
-html, body, #root { min-height: 100%; }
+* { box-sizing: border-box; scrollbar-width: none; }
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }
+html, body, #root { min-height: 100%; max-width: 100%; overflow-x: hidden; }
+.app-shell, .main, .page, .grid, .card, .grid > * { min-width: 0; }
+.recharts-responsive-container, .recharts-wrapper { max-width: 100%; }
 body {
   margin: 0;
   font-family: "IBM Plex Sans", system-ui, sans-serif;
@@ -44,6 +47,7 @@ a { color: inherit; text-decoration: none; }
   position: sticky;
   top: 0;
   height: 100vh;
+  z-index: 30;
   padding: 18px 14px;
   border-right: 1px solid var(--line);
   background: rgba(8, 12, 22, 0.92);
@@ -69,6 +73,26 @@ a { color: inherit; text-decoration: none; }
 }
 .brand h1 { font-size: 16px; margin: 0; }
 .brand p { margin: 0; font-size: 11px; color: var(--muted); letter-spacing: 0.04em; }
+.nav { overflow: auto; flex: 1; min-height: 0; display: grid; align-content: start; gap: 2px; }
+.nav-toggle, .nav-close, .nav-backdrop { display: none; }
+.tape {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+}
+.chat-fab {
+  position: fixed;
+  right: 18px;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  z-index: 40;
+}
+.chat-dock .field { flex: 1; min-width: 0; }
+.chat-dock .btn { flex-shrink: 0; }
+img, canvas, svg { max-width: 100%; }
+.card:has(table) { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { min-width: 560px; }
 .nav a {
   display: flex;
   align-items: center;
@@ -109,7 +133,7 @@ a { color: inherit; text-decoration: none; }
   border-bottom: 1px solid var(--line);
   background: rgba(7, 11, 20, 0.8);
   backdrop-filter: blur(18px);
-  overflow: auto;
+  overflow: hidden;
 }
 .ticker-chip {
   min-width: max-content;
@@ -263,7 +287,7 @@ th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background
   background: #070b14;
   position: relative;
 }
-.am-chart canvas { display: block; width: 100%; }
+.am-chart canvas { display: block; width: 100%; height: auto; max-width: none; }
 .flow-bar {
   display: flex;
   height: 8px;
@@ -362,15 +386,130 @@ th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background
   bottom: calc(100% + 6px);
   top: auto;
 }
+@media (min-width: 1101px) {
+  .app-shell { display: block; }
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 248px;
+  }
+  .main { margin-left: 248px; }
+}
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
+  .nav-toggle { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; padding: 8px; flex-shrink: 0; }
+  .nav-close { display: inline-flex; margin-left: auto; padding: 6px 8px; }
+  .sidebar {
+    position: fixed;
+    z-index: 70;
+    width: min(300px, 88vw);
+    transform: translateX(-105%);
+    transition: transform 0.2s ease;
+    box-shadow: var(--shadow);
+  }
+  .sidebar.open { transform: none; }
+  .nav-backdrop.show {
+    display: block;
+    position: fixed;
+    inset: 0;
+    border: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 65;
+  }
+  .topbar { padding: 8px 10px; gap: 8px; overflow: hidden; }
   .g-4, .g-3 { grid-template-columns: 1fr 1fr; }
-  .chat-dock { width: calc(100vw - 24px); }
+  .page { padding: 14px 14px calc(96px + env(safe-area-inset-bottom)); }
+  .chat-dock { width: min(420px, calc(100vw - 16px)); right: 8px; }
   .lang-native { display: none; }
+  .brand { align-items: flex-start; }
 }
 @media (max-width: 720px) {
   .g-4, .g-3, .g-2 { grid-template-columns: 1fr; }
+  .page { padding: 12px 12px calc(100px + env(safe-area-inset-bottom)); gap: 12px; }
+  .page h2 { font-size: 18px; }
+  .stat { font-size: 22px; }
+  .card { padding: 12px; }
+  .row { flex-wrap: wrap; align-items: flex-start; }
+  .btn, .chip, .lang-btn, .field, select, textarea { min-height: 40px; }
+  .ticker-chip { font-size: 11px; padding: 6px 8px; }
+  .oi-legend, .oi-row { grid-template-columns: 1fr 56px 1fr; gap: 4px; }
+  .bubble.me { margin-left: 8px; }
+  .chat-dock {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    max-height: min(82vh, 640px);
+  }
+  .chat-fab { right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .heat { min-height: 64px; font-size: 13px; }
+  .scroll { max-height: 70vh; }
+  .legend { flex-wrap: wrap; }
+  th, td { padding: 8px 6px; font-size: 12px; }
+}
+@media (min-width: 721px) and (max-width: 1100px) {
+  .stat { font-size: 24px; }
+}
+.chart-desk {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 260px;
+  gap: 10px;
+  align-items: start;
+}
+.chart-tools { display: flex; flex-direction: column; gap: 6px; }
+.chart-tool {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg2);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.chart-tool.on, .chart-tool:hover { color: var(--text); border-color: var(--accent); }
+.chart-stage { position: relative; min-width: 0; background: #0b0e11; border-radius: 8px; overflow: hidden; }
+.chart-stage canvas { display: block; width: 100%; height: 100%; }
+.chart-hud {
+  position: absolute;
+  left: 14px;
+  top: 8px;
+  max-width: calc(100% - 110px);
+  font-size: 12px;
+  line-height: 1.45;
+  color: #d1d4dc;
+  pointer-events: none;
+}
+.chart-hud > div { display: flex; flex-wrap: wrap; align-items: baseline; }
+.chart-legend-name { color: #b2b5be; font-weight: 600; }
+.chart-hud .k { color: #787b86; margin: 0 4px 0 10px; }
+.chart-hud .k:first-child { margin-left: 0; }
+.chart-hud .up { color: #089981; margin-left: 8px; }
+.chart-hud .dn { color: #f23645; margin-left: 8px; }
+.chart-side { display: grid; gap: 10px; align-content: start; }
+.chart-panel, .chart-form, .chart-levels { display: grid; gap: 8px; }
+.chart-form label, .chart-panel label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.chart-form input, .chart-form select, .chart-levels input[type="number"] {
+  width: 120px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+.chart-levels .row { gap: 6px; }
+@media (max-width: 980px) {
+  .chart-desk { grid-template-columns: 1fr; }
+  .chart-tools { flex-direction: row; flex-wrap: wrap; }
 }
 .ml-alert {
   padding: 8px 10px;

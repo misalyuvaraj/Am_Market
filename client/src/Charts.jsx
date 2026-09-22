@@ -5,7 +5,7 @@ export function Spark({ data = [], up = true, height = 46 }) {
   const rows = (data || []).map((c, i) => ({ i, c: Number(c) || 0 }));
   if (rows.length < 2) return <div className="muted">No tape</div>;
   return (
-    <ResponsiveContainer width="100%" height={height}>
+    <ResponsiveContainer width="100%" height={height} minWidth={0}>
       <AreaChart data={rows}>
         <defs>
           <linearGradient id={up ? "upg" : "dng"} x1="0" y1="0" x2="0" y2="1">
@@ -22,7 +22,7 @@ export function Spark({ data = [], up = true, height = 46 }) {
 
 export function PnlChart({ points = [] }) {
   return (
-    <ResponsiveContainer width="100%" height={280}>
+    <ResponsiveContainer width="100%" height={280} minWidth={0}>
       <AreaChart data={points}>
         <CartesianGrid stroke="#22304c" />
         <XAxis dataKey="spot" tick={{ fill: "#8b9bb8", fontSize: 11 }} />

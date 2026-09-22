@@ -1,11 +1,17 @@
-import { getTickers, getNewsBundle, getTechnicals, liveNews } from "./market.js";
+import { getFastQuotes, getNewsBundle, getTechnicals, liveNews } from "./market.js";
 import { getOptionChain, getOiAnalysis } from "./options.js";
 import { analyzeSymbol, mlSnapshot } from "./ml.js";
 import { detectSymbol, NIFTY50 } from "./universe.js";
 import { freshTickers, liveAgeMs, liveQuote } from "./snapshot.js";
 
 async function liveOrTickers() {
-  return freshTickers(4000) || getTickers();
+  const live = freshTickers(8000);
+  if (live) return live;
+  try {
+    return await getFastQuotes();
+  } catch {
+    return freshTickers(60000) || { session: {}, nifty: null };
+  }
 }
 
 function snapshotText(t, oc, tech) {

@@ -23,8 +23,11 @@ let at = 0;
 
 export function setLiveSnapshot(data) {
   if (!data) return;
+  const now = Date.now();
+  data.tapeAt = now;
+  data.live = true;
   snap = data;
-  at = Date.now();
+  at = now;
 }
 
 export function getLiveSnapshot() {

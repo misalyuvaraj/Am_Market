@@ -96,8 +96,8 @@ export default function Markets() {
         <div className="grid g-2">
           <div className="card click-card" onClick={() => navigate(livePath("BTCUSD"))}>
             <h3>Binance BTCUSDT</h3>
-            <div className="stat mono">{fmt(btc.data?.live?.price)}</div>
-            <div className={cls(btc.data?.live?.changePct)}>{fmt(btc.data?.live?.changePct)}%</div>
+            <div className="stat mono">{fmt(tickers?.btc?.price ?? btc.data?.live?.price)}</div>
+            <div className={cls(tickers?.btc?.changePct ?? btc.data?.live?.changePct)}>{fmt(tickers?.btc?.changePct ?? btc.data?.live?.changePct)}%</div>
             <p className="muted">24h high {fmt(btc.data?.live?.high)} · low {fmt(btc.data?.live?.low)}</p>
             <Spark data={btc.data?.live?.spark || []} up={(btc.data?.live?.changePct || 0) >= 0} height={90} />
           </div>

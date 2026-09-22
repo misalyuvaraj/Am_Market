@@ -1,8 +1,9 @@
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { livePath } from "./symbols";
 import {
   Activity, Bot, Brain, CandlestickChart, Flame, Globe2, Layers3,
-  LineChart, Newspaper, Radar, Sparkles, Target, Wallet, Bitcoin, LayoutGrid, DollarSign
+  LineChart, Menu, Newspaper, Radar, Sparkles, Target, Wallet, Bitcoin, LayoutGrid, DollarSign, X
 } from "lucide-react";
 import { cls, fmt, fmtIst, livePct } from "./api";
 import { useFlash, useLive } from "./hooks";
@@ -55,15 +56,31 @@ export default function Layout() {
   const { tickers, connected, now, ageSec } = useLive();
   const t = useT();
   const session = tickers?.session;
+  const location = useLocation();
+  const [navOpen, setNavOpen] = useState(false);
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <button
+        type="button"
+        className={`nav-backdrop ${navOpen ? "show" : ""}`}
+        aria-label="Close menu"
+        onClick={() => setNavOpen(false)}
+      />
+      <aside className={`sidebar ${navOpen ? "open" : ""}`}>
         <div className="brand">
           <div className="logo">AM</div>
           <div>
             <h1>Am Market</h1>
             <p>{t("brand.tag")}</p>
           </div>
+          <button type="button" className="btn ghost nav-close" aria-label="Close menu" onClick={() => setNavOpen(false)}>
+            <X size={16} />
+          </button>
         </div>
         <nav className="nav">
           {links.map((l) => {
@@ -85,15 +102,19 @@ export default function Layout() {
       </aside>
       <div className="main">
         <div className="topbar">
-          <Chip label="NIFTY" node={tickers?.nifty} symbol="NIFTY" />
-          <Chip label="SENSEX" node={tickers?.sensex} symbol="SENSEX" />
-          <Chip label="BANKNIFTY" node={tickers?.banknifty} symbol="BANKNIFTY" />
-          <Chip label="GIFT" node={tickers?.giftnifty} />
-          <Chip label="VIX" node={tickers?.vix} symbol="INDIAVIX" />
-          <Chip label="USDINR" node={tickers?.usdInr} symbol="USDINR" />
-          <Chip label="EURUSD" node={tickers?.eurusd} symbol="EURUSD" />
-          <Chip label="BTC" node={tickers?.btc} symbol="BTCUSD" />
-          <LanguageSelect />
+          <button type="button" className="btn ghost nav-toggle" aria-label="Open menu" onClick={() => setNavOpen(true)}>
+            <Menu size={18} />
+          </button>
+          <div className="tape">
+            <Chip label="NIFTY" node={tickers?.nifty} symbol="NIFTY" />
+            <Chip label="SENSEX" node={tickers?.sensex} symbol="SENSEX" />
+            <Chip label="BANKNIFTY" node={tickers?.banknifty} symbol="BANKNIFTY" />
+            <Chip label="GIFT" node={tickers?.giftnifty} />
+            <Chip label="VIX" node={tickers?.vix} symbol="INDIAVIX" />
+            <Chip label="USDINR" node={tickers?.usdInr} symbol="USDINR" />
+            <Chip label="EURUSD" node={tickers?.eurusd} symbol="EURUSD" />
+            <Chip label="BTC" node={tickers?.btc} symbol="BTCUSD" />
+          </div>
         </div>
         <ErrorBoundary title={t("err.title")} retry={t("err.retry")}>
           <Outlet context={{ tickers, connected, now, ageSec }} />

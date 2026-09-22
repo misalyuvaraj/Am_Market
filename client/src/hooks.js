@@ -19,36 +19,91 @@ export function useLive() {
   useEffect(() => {
     let ws;
     let closed = false;
-    let wsFails = 0;
+    let pullSeq = 0;
+    let lastSeq = 0;
+    let lastTapeAt = 0;
+    let lastMsg = 0;
+    let socketOpen = false;
+    let retryMs = 800;
+    let retryTimer = 0;
+    let pending = null;
+    let lastPriceSig = "";
+    let lastApply = 0;
+    let flushTimer = 0;
+    function priceSig(data) {
+      if (!data) return "";
+      return ["nifty", "sensex", "banknifty", "vix", "btc", "usdInr", "eurusd", "gbpusd", "usdjpy"]
+        .map((k) => {
+          const q = data[k] || {};
+          return `${q.price ?? ""}:${q.high ?? ""}:${q.low ?? ""}:${q.bar?.v ?? ""}`;
+        })
+        .join("|");
+    }
+    function isFresh(seq, at) {
+      if (at && lastTapeAt && at < lastTapeAt) return false;
+      if (at && lastTapeAt && at === lastTapeAt && seq && lastSeq && seq < lastSeq) return false;
+      if (!at && seq && lastSeq && seq < lastSeq) return false;
+      return true;
+    }
+    function applyTape(next) {
+      if (!next) return;
+      const seq = Number(next.seq) || 0;
+      const nextAt = Number(next.tapeAt) || 0;
+      if (!isFresh(seq, nextAt)) return;
+      if (seq) lastSeq = seq;
+      if (nextAt) lastTapeAt = nextAt;
+      const sig = priceSig(next);
+      const same = sig && sig === lastPriceSig;
+      if (sig) lastPriceSig = sig;
+      if (!same) setTickers(next);
+      setTickAt(nextAt || Date.now());
+      setConnected(true);
+    }
+    function queueTape(next) {
+      pending = next;
+      if (flushTimer) return;
+      const wait = Math.max(0, 100 - (Date.now() - lastApply));
+      flushTimer = setTimeout(() => {
+        flushTimer = 0;
+        const data = pending;
+        pending = null;
+        lastApply = Date.now();
+        applyTape(data);
+      }, wait);
+    }
     async function pull() {
+      if (socketOpen && Date.now() - lastMsg < 4000) return;
+      const id = ++pullSeq;
       try {
         const d = await api("/api/tickers");
-        if (!closed) {
-          setTickers(d);
-          setTickAt(Date.now());
-          setConnected(true);
-        }
+        if (!closed && id === pullSeq) queueTape(d);
       } catch {
-        if (!closed) setConnected(false);
+        if (!closed && id === pullSeq && !socketOpen) setConnected(false);
       }
     }
     const connect = () => {
-      if (closed || wsFails >= 2) return;
+      if (closed) return;
       const baseUrl = import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
       const wsUrl = String(baseUrl).replace(/^http/, "ws");
       try {
         ws = new WebSocket(`${wsUrl}/ws`);
       } catch {
-        wsFails += 1;
+        retryTimer = setTimeout(connect, retryMs);
+        retryMs = Math.min(8000, Math.round(retryMs * 1.6));
         return;
       }
       ws.onopen = () => {
-        wsFails = 0;
+        socketOpen = true;
+        retryMs = 800;
         setConnected(true);
       };
       ws.onclose = () => {
-        wsFails += 1;
-        if (!closed && wsFails < 2) setTimeout(connect, 2500);
+        socketOpen = false;
+        setConnected(false);
+        if (!closed) {
+          retryTimer = setTimeout(connect, retryMs);
+          retryMs = Math.min(8000, Math.round(retryMs * 1.6));
+        }
       };
       ws.onerror = () => {
         try {
@@ -60,25 +115,32 @@ export function useLive() {
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
-          if (msg.type === "tickers") {
-            setTickers(msg.data);
-            setTickAt(msg.ts || Date.now());
+          lastMsg = Date.now();
+          if (msg.type === "ping") {
+            const seq = Number(msg.seq) || 0;
+            const at = Number(msg.tapeAt || msg.ts) || 0;
+            if (!isFresh(seq, at)) return;
+            if (seq) lastSeq = seq;
+            if (at) lastTapeAt = Math.max(lastTapeAt, at);
+            setTickAt(at || Date.now());
+            setConnected(true);
+            return;
           }
-          if (msg.type === "btc") {
-            setTickers((prev) => (prev ? { ...prev, btc: msg.data } : prev));
-            setTickAt(msg.ts || Date.now());
-          }
+          if (msg.type === "tickers" && msg.data) queueTape(msg.data);
+          if (msg.type === "error") setConnected(socketOpen);
         } catch {
-          /* ignore */
+          /* ignore malformed frames */
         }
       };
     };
     pull();
-    const poll = setInterval(pull, 3000);
+    const poll = setInterval(pull, 5000);
     connect();
     return () => {
       closed = true;
       clearInterval(poll);
+      clearTimeout(flushTimer);
+      clearTimeout(retryTimer);
       ws?.close();
     };
   }, []);

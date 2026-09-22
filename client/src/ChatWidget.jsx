@@ -63,7 +63,7 @@ export default function ChatWidget() {
 
   if (!open) {
     return (
-      <button className="btn" style={{ position: "fixed", right: 18, bottom: 18, zIndex: 40 }} onClick={() => setOpen(true)}>
+      <button className="btn chat-fab" onClick={() => setOpen(true)}>
         <Bot size={16} style={{ verticalAlign: "middle" }} /> {t("chat.open")}
       </button>
     );

@@ -26,6 +26,7 @@ export const TFS = [
   { id: "5m", range: "5d", label: "5m" },
   { id: "15m", range: "5d", label: "15m" },
   { id: "60m", range: "1mo", label: "1H" },
+  { id: "4h", range: "6mo", label: "4H" },
   { id: "1d", range: "6mo", label: "1D" }
 ];
 

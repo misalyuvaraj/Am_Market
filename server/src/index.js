@@ -5,6 +5,7 @@ import http from "http";
 import { attachLive } from "./live.js";
 import {
   getTickers,
+  getFastQuotes,
   getIndexChart,
   getLiveCandles,
   getStock,
@@ -64,7 +65,8 @@ app.get("/api/overview", async (_req, res) => {
 
 app.get("/api/tickers", async (_req, res) => {
   try {
-    res.json(freshTickers(4000) || await getTickers());
+    const live = freshTickers(12000);
+    res.json(live || await getFastQuotes());
   } catch (err) {
     res.status(502).json({ error: err.message });
   }

@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { api, cls, fmt, livePct } from "../api";
 import { useFlash } from "../hooks";
-import LiveCandleChart from "../LiveCandleChart";
+import TradeChart from "../TradeChart";
 import { CHART_SYMBOLS, TFS, livePath, symbolSpec, tickerFor } from "../symbols";
 import { useT } from "../i18n";
 
 export default function LiveAction() {
-  const { tickers } = useOutletContext();
+  const { tickers, ageSec } = useOutletContext();
   const t = useT();
   const { symbol: routeSymbol } = useParams();
   const navigate = useNavigate();
@@ -19,7 +19,6 @@ export default function LiveAction() {
   const live = tickerFor(symbol, tickers);
   const flash = useFlash(live?.price || pack?.price);
   const tfSpec = TFS.find((t) => t.id === tf) || TFS[1];
-  const groups = useMemo(() => [...new Set(CHART_SYMBOLS.map((s) => s.group))], []);
 
   useEffect(() => {
     if (!routeSymbol) navigate(livePath("NIFTY"), { replace: true });
@@ -27,34 +26,61 @@ export default function LiveAction() {
 
   useEffect(() => {
     let on = true;
+    let seq = 0;
     setPack(null);
     async function load() {
+      const id = ++seq;
       try {
         const data = await api(`/api/candles/${symbol}?range=${tfSpec.range}&interval=${tfSpec.id}`).catch(() =>
           api(`/api/chart/${symbol}?range=${tfSpec.range}&interval=${tfSpec.id}`)
         );
-        if (on) {
+        if (on && id === seq) {
           setPack(data);
           setErr("");
         }
       } catch (e) {
-        if (on) setErr(e.message);
+        if (on && id === seq) setErr(e.message);
       }
     }
     load();
-    const id = setInterval(load, tf === "1m" ? 2500 : 4000);
+    const timer = setInterval(load, tf === "1m" ? 3000 : 8000);
     return () => {
       on = false;
-      clearInterval(id);
+      clearInterval(timer);
     };
   }, [symbol, tf, tfSpec.range, tfSpec.id]);
 
-  const last = pack?.candles?.at(-1);
   const price = live?.price ?? pack?.price;
+  const tape = useRef({ key: "", t: 0, h: null, l: null });
+  const candles = useMemo(() => {
+    const rows = (pack?.candles || []).map((c) => ({ ...c }));
+    const px = Number(price);
+    if (!rows.length || !Number.isFinite(px)) return rows;
+    const last = rows[rows.length - 1];
+    const key = `${symbol}:${tf}`;
+    if (tape.current.key !== key || tape.current.t !== last.t) tape.current = { key, t: last.t, h: px, l: px };
+    tape.current.h = Math.max(tape.current.h, px);
+    tape.current.l = Math.min(tape.current.l, px);
+    last.c = px;
+    last.h = Math.max(Number(last.h) || px, tape.current.h);
+    last.l = Math.min(Number(last.l) || px, tape.current.l);
+    return rows;
+  }, [pack, price, symbol, tf]);
+  const last = candles.at(-1);
   const pct = livePct(live) ?? pack?.changePct;
   const digits = spec.digits;
   const vol = last?.v;
   const bars = pack?.candles?.length || 0;
+  const [chartH, setChartH] = useState(540);
+  useEffect(() => {
+    const fit = () => {
+      const w = window.innerWidth;
+      setChartH(w < 720 ? 520 : w < 1100 ? 620 : 680);
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
 
   return (
     <div className="page">
@@ -66,19 +92,15 @@ export default function LiveAction() {
       </div>
 
       <div className="card">
-        <div className="row" style={{ marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-          {groups.map((g) => (
-            <span key={g} className="chips">
-              {CHART_SYMBOLS.filter((s) => s.group === g).map((s) => (
-                <button
-                  key={s.id}
-                  className={`chip ${symbol === s.id ? "on" : ""}`}
-                  onClick={() => navigate(livePath(s.id))}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </span>
+        <div className="chips" style={{ marginBottom: 10 }}>
+          {CHART_SYMBOLS.map((s) => (
+            <button
+              key={s.id}
+              className={`chip ${symbol === s.id ? "on" : ""}`}
+              onClick={() => navigate(livePath(s.id))}
+            >
+              {s.label}
+            </button>
           ))}
         </div>
         <div className="chips" style={{ marginBottom: 12 }}>
@@ -97,14 +119,24 @@ export default function LiveAction() {
           <div className="muted mono" style={{ fontSize: 12 }}>
             O {fmt(last?.o, digits)} · H {fmt(last?.h, digits)} · L {fmt(last?.l, digits)} · C {fmt(last?.c || price, digits)}
             {" · Vol "}{fmt(vol, 0)}
-            {" · live "}{tf} · {bars} bars
+            {" · "}{tf} · {bars} bars
+            {ageSec != null ? ` · streaming ${ageSec}s` : ""}
           </div>
         </div>
         <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
           {t("live.hint")}
         </div>
         {err ? <div className="err">{err}</div> : null}
-        <LiveCandleChart candles={pack?.candles || []} livePrice={price} height={540} precision={digits} />
+        <TradeChart
+          symbol={spec.label}
+          interval={tf}
+          candles={candles}
+          livePrice={price}
+          change={live?.change}
+          changePct={pct}
+          height={chartH}
+          precision={digits}
+        />
       </div>
     </div>
   );

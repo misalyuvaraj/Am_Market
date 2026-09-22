@@ -212,12 +212,15 @@ export function News() {
 
 export function BtcLab() {
   const t = useT();
+  const { tickers } = useOutletContext();
   const { data } = useApi("/api/btc", [], { refreshMs: 5000 });
+  const btcPx = tickers?.btc?.price ?? data?.live?.price;
+  const btcPct = tickers?.btc?.changePct ?? data?.live?.changePct;
   return (
     <div className="page">
       <div><h2>{t("btc.title")}</h2><p className="sub">{t("btc.sub")}</p></div>
       <div className="grid g-3">
-        <div className="card"><h3>Binance</h3><div className="stat mono">{fmt(data?.live?.price)}</div><div className={cls(data?.live?.changePct)}>{fmt(data?.live?.changePct)}%</div></div>
+        <div className="card"><h3>Binance</h3><div className="stat mono">{fmt(btcPx)}</div><div className={cls(btcPct)}>{fmt(btcPct)}%</div></div>
         <div className="card"><h3>USD</h3><div className="stat mono">{fmt(data?.gecko?.usd)}</div></div>
         <div className="card"><h3>INR</h3><div className="stat mono">{fmt(data?.gecko?.inr, 0)}</div></div>
       </div>

@@ -68,6 +68,44 @@ async function nseWarm() {
   }
 }
 
+const NSE_MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+
+function nseStamp(text) {
+  const m = String(text || "").match(/(\d{1,2})-([A-Za-z]{3})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/);
+  const month = m ? NSE_MONTHS[m[2]] : undefined;
+  if (!m || month == null) return 0;
+  return Date.UTC(Number(m[3]), month, Number(m[1]), Number(m[4]), Number(m[5]), Number(m[6])) - 5.5 * 3600e3;
+}
+
+const nseSpotCache = new Map();
+
+async function nseSpotOnce(symbol) {
+  const info = await cached(`nse:exp:${symbol}`, 10 * 60 * 1000, () => nseGet(`/api/option-chain-contract-info?symbol=${symbol}`));
+  const expiry = info?.expiryDates?.[0];
+  if (!expiry) return null;
+  const data = await nseGet(`/api/option-chain-v3?type=Indices&symbol=${symbol}&expiry=${encodeURIComponent(expiry)}`);
+  const rec = data?.records || {};
+  const price = num(rec.underlyingValue);
+  if (!price) return null;
+  const at = nseStamp(rec.timestamp);
+  if (at && Date.now() - at > 20 * 60 * 1000) return null;
+  return { price, time: rec.timestamp || "", at: at || Date.now(), source: "nse" };
+}
+
+export async function nseIndexSpot(symbol) {
+  const key = String(symbol || "").toUpperCase();
+  const hit = nseSpotCache.get(key);
+  if (hit && Date.now() - hit.saved < 800) return hit.value;
+  try {
+    const value = await nseSpotOnce(key);
+    if (!value) return hit?.value || null;
+    nseSpotCache.set(key, { saved: Date.now(), value });
+    return value;
+  } catch {
+    return hit?.value || null;
+  }
+}
+
 export async function nseGet(path, timeoutMs = NSE_TIMEOUT) {
   await nseWarm();
   const url = path.startsWith("http") ? path : `https://www.nseindia.com${path}`;
@@ -156,7 +194,7 @@ function withTickVolume(candles = []) {
 }
 
 function intervalMs(interval) {
-  const map = { "1m": 60e3, "2m": 120e3, "5m": 300e3, "15m": 900e3, "30m": 1800e3, "60m": 3600e3, "1h": 3600e3, "1d": 86400e3 };
+  const map = { "1m": 60e3, "2m": 120e3, "5m": 300e3, "15m": 900e3, "30m": 1800e3, "60m": 3600e3, "1h": 3600e3, "4h": 14400e3, "240m": 14400e3, "1d": 86400e3 };
   return map[interval] || 300e3;
 }
 
@@ -178,9 +216,30 @@ function mergeFormingBar(candles, interval) {
   return out;
 }
 
+function aggregate4h(candles = []) {
+  const step = 4 * 3600e3;
+  const ist = 5.5 * 3600e3;
+  const buckets = new Map();
+  for (const c of candles) {
+    const raw = Number(c.t);
+    if (!raw || !Number.isFinite(Number(c.c))) continue;
+    const ms = raw > 1e12 ? raw : raw * 1000;
+    const t = Math.floor((ms + ist) / step) * step - ist;
+    const row = buckets.get(t);
+    if (!row) buckets.set(t, { t, o: Number(c.o), h: Number(c.h), l: Number(c.l), c: Number(c.c), v: Number(c.v) || 0 });
+    else {
+      row.h = Math.max(row.h, Number(c.h));
+      row.l = Math.min(row.l, Number(c.l));
+      row.c = Number(c.c);
+      row.v += Number(c.v) || 0;
+    }
+  }
+  return [...buckets.values()].sort((a, b) => a.t - b.t);
+}
+
 function stampLiveBar(chart, interval = "5m") {
   let candles = withTickVolume(chart.candles || []);
-  candles = mergeFormingBar(candles, interval);
+  if (interval !== "4h" && interval !== "240m") candles = mergeFormingBar(candles, interval);
   if (candles.length && Number.isFinite(Number(chart.price))) {
     const last = candles[candles.length - 1];
     last.c = Number(chart.price);
@@ -193,10 +252,10 @@ function stampLiveBar(chart, interval = "5m") {
 
 export async function getLiveCandles(key, range = "5d", interval = "5m") {
   const k = String(key || "USDINR").toUpperCase();
-  const ttl = interval === "1m" || interval === "2m" || interval === "5m" ? 2500 : 6000;
+  const ttl = interval === "1m" || interval === "2m" || interval === "5m" ? 1000 : 4000;
   if (k === "BTC" || k === "BTCUSD" || k === "BTCUSDT") {
     const pack = await cached(`bn:kl:${interval}`, 2000, async () => {
-      const map = { "1m": "1m", "2m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "60m": "1h", "1h": "1h", "1d": "1d" };
+      const map = { "1m": "1m", "2m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "60m": "1h", "1h": "1h", "4h": "4h", "240m": "4h", "1d": "1d" };
       const kl = await getJson(`${BINANCE}/klines?symbol=BTCUSDT&interval=${map[interval] || "5m"}&limit=300`);
       const candles = kl.map((row) => ({
         t: num(row[0]),
@@ -235,8 +294,12 @@ export async function getLiveCandles(key, range = "5d", interval = "5m") {
     return applyLiveLast(pack, k);
   }
   const spec = INDEX_MAP[k] || { yahoo: k.includes("=") || k.includes("-") ? k : `${k}.NS` };
+  const fourHour = interval === "4h" || interval === "240m";
   const pack = await cached(`livebar:${spec.yahoo}:${range}:${interval}`, ttl, async () => {
-    const chart = await yahooChart(spec.yahoo, range, interval);
+    const chart = fourHour
+      ? await yahooChart(spec.yahoo, range || "6mo", "60m")
+      : await yahooChart(spec.yahoo, range, interval);
+    if (fourHour) chart.candles = aggregate4h(chart.candles);
     return stampLiveBar({ ...chart, interval, range, source: "yahoo" }, interval);
   });
   return applyLiveLast(pack, k);
@@ -248,11 +311,11 @@ export async function yahooQuote(symbol, range = "1d", interval = "2m") {
 }
 
 export async function yahooQuoteLive(symbol) {
-  return cached(`ylive:${symbol}`, 1500, () => yahooChart(symbol, "1d", "1m"));
+  return cached(`ylive:${symbol}`, 100, () => yahooChart(symbol, "1d", "1m"));
 }
 
 export async function downstoxOverview() {
-  return cached("dx:overview", 2000, () => getJson(`${DOWNSTOX}/india-markets/overview`));
+  return cached("dx:overview", 1000, () => getJson(`${DOWNSTOX}/india-markets/overview`));
 }
 
 export async function downstox(path, ttl = 30000) {
@@ -550,15 +613,24 @@ export async function getForexBundle() {
   };
 }
 
+function soon(promise, ms = 2800) {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((resolve) => setTimeout(() => resolve(null), ms))
+  ]);
+}
+
 export async function getFastQuotes() {
-  const [dx, nY, sY, bY, vY, btc, fx] = await Promise.allSettled([
-    downstoxOverview(),
-    yahooQuoteLive("^NSEI"),
-    yahooQuoteLive("^BSESN"),
-    yahooQuoteLive("^NSEBANK"),
-    yahooQuoteLive("^INDIAVIX"),
-    binanceTicker(),
-    getForexLive()
+  const [dx, nY, sY, bY, vY, btc, fx, nseN, nseB] = await Promise.allSettled([
+    soon(downstoxOverview()),
+    soon(yahooQuoteLive("^NSEI")),
+    soon(yahooQuoteLive("^BSESN")),
+    soon(yahooQuoteLive("^NSEBANK")),
+    soon(yahooQuoteLive("^INDIAVIX")),
+    soon(binanceTicker()),
+    soon(getForexLive()),
+    soon(nseIndexSpot("NIFTY"), 6000),
+    soon(nseIndexSpot("BANKNIFTY"), 6000)
   ]);
   const overview = dx.status === "fulfilled" ? dx.value : null;
   const nse = overview?.indices?.nse || {};
@@ -570,11 +642,17 @@ export async function getFastQuotes() {
   const yS = sY.status === "fulfilled" ? sY.value : null;
   const yB = bY.status === "fulfilled" ? bY.value : null;
   const yV = vY.status === "fulfilled" ? vY.value : null;
+  const spotN = nseN.status === "fulfilled" ? nseN.value : null;
+  const spotB = nseB.status === "fulfilled" ? nseB.value : null;
 
-  const niftyPrice = nse.isLive && nse.price ? num(nse.price) : num(yN?.price || nse.price);
-  const niftyPrev = num(nse.prevClose || yN?.prev);
-  const sensexPrice = bse.isLive && bse.price ? num(bse.price) : num(yS?.price || bse.price);
-  const sensexPrev = num(bse.prevClose || yS?.prev);
+  const niftyYahoo = num(yN?.price);
+  const sensexYahoo = num(yS?.price);
+  const niftyNse = num(spotN?.price);
+  const niftyPrice = niftyNse || niftyYahoo || num(nse.price);
+  const niftyPrev = niftyYahoo ? num(yN.prev) : num(nse.prevClose || yN?.prev);
+  const niftySource = niftyNse ? "nse" : niftyYahoo ? "yahoo" : "downstox";
+  const sensexPrice = sensexYahoo || num(bse.price);
+  const sensexPrev = sensexYahoo ? num(yS.prev) : num(bse.prevClose || yS?.prev);
 
   return {
     session: marketSession(),
@@ -586,8 +664,8 @@ export async function getFastQuotes() {
           exchange: "NSE",
           price: niftyPrice,
           prev: niftyPrev,
-          change: nse.changeAbs,
-          extra: { open: num(nse.open || yN?.open), high: num(nse.dayHigh || yN?.high), low: num(nse.dayLow || yN?.low), live: true, spark: yN?.spark || [] }
+          change: niftyYahoo ? undefined : nse.changeAbs,
+          extra: { open: num(yN?.open || nse.open), high: num(yN?.high || nse.dayHigh), low: num(yN?.low || nse.dayLow), live: true, spark: yN?.spark || [], source: niftySource, asOf: spotN?.time || "", digits: 2 }
         })
       : null,
     sensex: sensexPrice
@@ -597,18 +675,18 @@ export async function getFastQuotes() {
           exchange: "BSE",
           price: sensexPrice,
           prev: sensexPrev,
-          change: bse.changeAbs,
-          extra: { open: num(bse.open || yS?.open), high: num(bse.dayHigh || yS?.high), low: num(bse.dayLow || yS?.low), live: true, spark: yS?.spark || [] }
+          change: sensexYahoo ? undefined : bse.changeAbs,
+          extra: { open: num(yS?.open || bse.open), high: num(yS?.high || bse.dayHigh), low: num(yS?.low || bse.dayLow), live: true, spark: yS?.spark || [], source: sensexYahoo ? "yahoo" : "downstox", digits: 2 }
         })
       : null,
-    banknifty: yB
+    banknifty: num(spotB?.price) || yB?.price
       ? quotePack({
           symbol: "BANKNIFTY",
           name: "Bank Nifty",
           exchange: "NSE",
-          price: yB.price,
-          prev: yB.prev,
-          extra: { spark: yB.spark, live: true }
+          price: num(spotB?.price) || num(yB?.price),
+          prev: yB?.prev,
+          extra: { spark: yB?.spark, live: true, source: spotB?.price ? "nse" : "yahoo", asOf: spotB?.time || "", digits: 2 }
         })
       : findExtra("Bank Nifty").price
         ? quotePack({
@@ -616,7 +694,8 @@ export async function getFastQuotes() {
             name: "Bank Nifty",
             exchange: "NSE",
             price: findExtra("Bank Nifty").price,
-            changePct: findExtra("Bank Nifty").change
+            changePct: findExtra("Bank Nifty").change,
+            extra: { live: true, source: "downstox", digits: 2 }
           })
         : null,
     giftnifty: gift.price
