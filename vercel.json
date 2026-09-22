@@ -1,18 +1,25 @@
 {
-  "regions": ["bom1"],
+  "version": 2,
   "installCommand": "npm install && npm install --prefix client && npm install --prefix server",
-  "buildCommand": "npm run build --prefix client",
-  "outputDirectory": "client/dist",
-  "functions": {
-    "api/index.js": {
-      "includeFiles": "server/src/**"
+  "builds": [
+    {
+      "src": "api/index.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": "server/src/**"
+      }
     },
-    "api/[...path].js": {
-      "includeFiles": "server/src/**"
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "client/dist"
+      }
     }
-  },
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/index.js" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
