@@ -317,6 +317,27 @@ export async function coinGeckoBtc() {
   });
 }
 
+async function resolvedBtc(existing) {
+  if (Number.isFinite(Number(existing?.price)) && Number(existing.price) > 0) return existing;
+  const cg = await coinGeckoBtc().catch(() => null);
+  if (num(cg?.usd)) {
+    return {
+      symbol: "BTCUSDT",
+      name: "Bitcoin",
+      exchange: "CoinGecko",
+      currency: "USD",
+      price: num(cg.usd),
+      changePct: cg.usdChange,
+      priceChangePercent: cg.usdChange,
+      source: "coingecko",
+      tickAt: Date.now()
+    };
+  }
+  const y = await yahooQuote("BTC-USD", "1d", "5m").catch(() => null);
+  if (num(y?.price)) return { ...y, symbol: "BTCUSDT", name: "Bitcoin", source: "yahoo" };
+  return existing || null;
+}
+
 const GOOGLE_RSS = (q) =>
   `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-IN&gl=IN&ceid=IN:en`;
 
@@ -627,7 +648,7 @@ export async function getFastQuotes() {
             changePct: findExtra("India VIX").change
           })
         : null,
-    btc: btc.status === "fulfilled" ? btc.value : null,
+    btc: await resolvedBtc(btc.status === "fulfilled" ? btc.value : null),
     forex: fx.status === "fulfilled" ? fx.value.pairs : [],
     usdInr: fx.status === "fulfilled" ? fx.value.usdInr : null,
     eurusd: fx.status === "fulfilled" ? fx.value.eurusd : null,
@@ -716,7 +737,7 @@ export async function getTickers() {
           }
         : null;
 
-  const bitcoin =
+  const bitcoin = await resolvedBtc(
     btc.status === "fulfilled"
       ? btc.value
       : {
@@ -724,7 +745,8 @@ export async function getTickers() {
           price: num(findExtra("Bitcoin").price),
           changePct: round(num(findExtra("Bitcoin").change), 2),
           source: "downstox"
-        };
+        }
+  );
 
   return {
     session: marketSession(),
