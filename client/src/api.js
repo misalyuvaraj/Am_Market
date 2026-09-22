@@ -6,7 +6,7 @@ export async function api(path, options = {}) {
     body: options.body ? JSON.stringify(options.body) : undefined
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) throw new Error(data.error || res.statusText || `HTTP ${res.status}`);
   return data;
 }
 

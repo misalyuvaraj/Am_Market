@@ -9,6 +9,7 @@ const COINGECKO = "https://api.coingecko.com/api/v3";
 
 let nseCookies = "";
 let nseReadyAt = 0;
+const NSE_TIMEOUT = process.env.VERCEL ? 3500 : 10000;
 
 const NSE_HEADERS = {
   "User-Agent": UA,
@@ -48,7 +49,7 @@ function collectCookies(res) {
 async function nseWarm() {
   if (nseCookies && Date.now() - nseReadyAt < 8 * 60 * 1000) return;
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 10000);
+  const t = setTimeout(() => ctrl.abort(), NSE_TIMEOUT);
   try {
     const res = await fetch("https://www.nseindia.com/option-chain", {
       signal: ctrl.signal,
@@ -67,7 +68,7 @@ async function nseWarm() {
   }
 }
 
-export async function nseGet(path, timeoutMs = 9000) {
+export async function nseGet(path, timeoutMs = NSE_TIMEOUT) {
   await nseWarm();
   const url = path.startsWith("http") ? path : `https://www.nseindia.com${path}`;
   const once = async () => {
@@ -857,11 +858,30 @@ export async function getBtcBundle() {
     yahooQuote("BTC-INR", "5d", "15m"),
     liveNews("btc")
   ]);
-  const live = bn.status === "fulfilled" ? bn.value : tape;
+  const gecko = cg.status === "fulfilled" ? cg.value : null;
+  const usd = chartUsd.status === "fulfilled" ? chartUsd.value : null;
+  let live = bn.status === "fulfilled" ? bn.value : tape;
+  if (!Number.isFinite(Number(live?.price))) {
+    const price = num(gecko?.usd) || num(usd?.price);
+    if (price) {
+      live = {
+        symbol: "BTCUSDT",
+        name: "Bitcoin",
+        exchange: gecko?.usd ? "CoinGecko" : "Yahoo",
+        currency: "USD",
+        price,
+        changePct: gecko?.usdChange ?? usd?.changePct,
+        priceChangePercent: gecko?.usdChange ?? usd?.changePct,
+        spark: usd?.spark || [],
+        source: gecko?.usd ? "coingecko" : "yahoo",
+        tickAt: Date.now()
+      };
+    }
+  }
   return {
     live,
-    gecko: cg.status === "fulfilled" ? cg.value : null,
-    usd: chartUsd.status === "fulfilled" ? applyLiveLast(chartUsd.value, "BTCUSD", live) : null,
+    gecko,
+    usd: usd ? applyLiveLast(usd, "BTCUSD", live) : null,
     inr: chartInr.status === "fulfilled" ? chartInr.value : null,
     news: news.status === "fulfilled" ? news.value : [],
     session: "24x7"
