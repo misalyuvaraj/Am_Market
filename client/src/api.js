@@ -1,5 +1,6 @@
 export async function api(path, options = {}) {
-  const res = await fetch(path, {
+  const baseUrl = import.meta.env.VITE_API_URL || "";
+  const res = await fetch(`${baseUrl}${path}`, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined

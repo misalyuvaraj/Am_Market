@@ -21,7 +21,9 @@ export function useLive() {
     let closed = false;
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${location.host}/ws`);
+      const baseUrl = import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
+      const wsUrl = baseUrl.replace(/^http/, 'ws');
+      ws = new WebSocket(`${wsUrl}/ws`);
       ws.onopen = () => setConnected(true);
       ws.onclose = () => {
         setConnected(false);
